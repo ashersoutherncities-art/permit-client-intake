@@ -47,7 +47,20 @@ export async function POST(req: NextRequest) {
       };
     } catch (driveError: any) {
       console.warn('Google Drive upload failed (non-critical):', driveError.message);
-      // Continue without Drive - photos are still in memory for analysis
+      // Return the error detail for debugging
+      return NextResponse.json({
+        success: true,
+        folderId: '',
+        folderLink: '',
+        uploaded: photos.map((p: any) => ({
+          fileId: '',
+          webViewLink: '',
+          category: p.category,
+          fileName: p.fileName,
+        })),
+        driveAvailable: false,
+        driveError: driveError.message,
+      });
     }
 
     return NextResponse.json({
