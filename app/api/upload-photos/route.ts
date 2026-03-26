@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createProjectFolder, uploadPhotoToFolder } from '@/lib/googleDrive';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,35 +9,58 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing projectName or photos' }, { status: 400 });
     }
 
-    // Create project folder structure
-    const { folderId, subfolders } = await createProjectFolder(projectName);
+    // Try Google Drive upload
+    let driveResult: {
+      folderId: string;
+      folderLink: string;
+      uploaded: Array<{ fileId: string; webViewLink: string; category: string; fileName: string }>;
+    } | null = null;
 
-    // Upload each photo to the appropriate subfolder
-    const uploaded: Array<{
-      fileId: string;
-      webViewLink: string;
-      category: string;
-      fileName: string;
-    }> = [];
+    try {
+      const { createProjectFolder, uploadPhotoToFolder } = await import('@/lib/googleDrive');
+      
+      const { folderId, subfolders } = await createProjectFolder(projectName);
 
-    for (const photo of photos) {
-      const { base64, mimeType, category, fileName } = photo;
-      const targetFolder = subfolders[category] || subfolders['existing'];
+      const uploaded: Array<{
+        fileId: string;
+        webViewLink: string;
+        category: string;
+        fileName: string;
+      }> = [];
 
-      const result = await uploadPhotoToFolder(targetFolder, fileName, mimeType, base64);
-      uploaded.push({
-        ...result,
-        category,
-        fileName,
-      });
+      for (const photo of photos) {
+        const { base64, mimeType, category, fileName } = photo;
+        const targetFolder = subfolders[category] || subfolders['existing'];
+
+        const result = await uploadPhotoToFolder(targetFolder, fileName, mimeType, base64);
+        uploaded.push({
+          ...result,
+          category,
+          fileName,
+        });
+      }
+
+      driveResult = {
+        folderId,
+        folderLink: `https://drive.google.com/drive/folders/${folderId}`,
+        uploaded,
+      };
+    } catch (driveError: any) {
+      console.warn('Google Drive upload failed (non-critical):', driveError.message);
+      // Continue without Drive - photos are still in memory for analysis
     }
 
     return NextResponse.json({
       success: true,
-      folderId,
-      subfolders,
-      uploaded,
-      folderLink: `https://drive.google.com/drive/folders/${folderId}`,
+      folderId: driveResult?.folderId || '',
+      folderLink: driveResult?.folderLink || '',
+      uploaded: driveResult?.uploaded || photos.map((p: any) => ({
+        fileId: '',
+        webViewLink: '',
+        category: p.category,
+        fileName: p.fileName,
+      })),
+      driveAvailable: !!driveResult,
     });
   } catch (error: any) {
     console.error('Photo upload error:', error);

@@ -1,13 +1,12 @@
 // Google Drive Integration for Photo Storage
 // Creates project folders with subfolders for photo categories
+// Requires: GOOGLE_SERVICE_ACCOUNT_JSON env var
+// Optional: GOOGLE_DRIVE_PARENT_FOLDER_ID (shared folder where service account has Editor access)
 
 import { google } from 'googleapis';
 import { Readable } from 'stream';
 
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
-
-// Parent folder for all permit intake projects (optional)
-const PARENT_FOLDER_ID = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || '';
 
 function getAuth() {
   const credentials = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -22,7 +21,7 @@ function getAuth() {
 
 function getDrive() {
   const auth = getAuth();
-  return google.drive({ version: 'v3', auth });
+  return google.drive({ version: 'v3', auth: auth as any });
 }
 
 export async function createProjectFolder(projectName: string): Promise<{
@@ -30,13 +29,14 @@ export async function createProjectFolder(projectName: string): Promise<{
   subfolders: Record<string, string>;
 }> {
   const drive = getDrive();
+  const parentId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || undefined;
 
   // Create main project folder
   const folderRes = await drive.files.create({
     requestBody: {
       name: projectName,
       mimeType: 'application/vnd.google-apps.folder',
-      parents: PARENT_FOLDER_ID ? [PARENT_FOLDER_ID] : undefined,
+      parents: parentId ? [parentId] : undefined,
     },
     fields: 'id',
   });
@@ -60,13 +60,17 @@ export async function createProjectFolder(projectName: string): Promise<{
   }
 
   // Make folder accessible via link
-  await drive.permissions.create({
-    fileId: folderId,
-    requestBody: {
-      role: 'reader',
-      type: 'anyone',
-    },
-  });
+  try {
+    await drive.permissions.create({
+      fileId: folderId,
+      requestBody: {
+        role: 'reader',
+        type: 'anyone',
+      },
+    });
+  } catch {
+    // Non-critical - folder may still be accessible to team
+  }
 
   return { folderId, subfolders };
 }
@@ -79,7 +83,6 @@ export async function uploadPhotoToFolder(
 ): Promise<{ fileId: string; webViewLink: string }> {
   const drive = getDrive();
 
-  // Convert base64 to buffer then to stream
   const buffer = Buffer.from(base64Data, 'base64');
   const stream = Readable.from(buffer);
 
