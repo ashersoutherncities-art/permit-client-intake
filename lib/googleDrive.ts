@@ -2,6 +2,7 @@
 // Creates project folders with subfolders for photo categories
 
 import { google } from 'googleapis';
+import { Readable } from 'stream';
 
 const SCOPES = ['https://www.googleapis.com/auth/drive'];
 
@@ -78,13 +79,9 @@ export async function uploadPhotoToFolder(
 ): Promise<{ fileId: string; webViewLink: string }> {
   const drive = getDrive();
 
-  // Convert base64 to buffer
+  // Convert base64 to buffer then to stream
   const buffer = Buffer.from(base64Data, 'base64');
-
-  const { Readable } = await import('stream');
-  const stream = new Readable();
-  stream.push(buffer);
-  stream.push(null);
+  const stream = Readable.from(buffer);
 
   const res = await drive.files.create({
     requestBody: {
