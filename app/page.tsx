@@ -7,15 +7,18 @@ import { z } from "zod";
 import ProgressBar from "@/components/ProgressBar";
 import StepClient from "@/components/StepClient";
 import StepProject from "@/components/StepProject";
+import StepPhotos, { PhotoFile } from "@/components/StepPhotos";
 import StepScope from "@/components/StepScope";
 import StepContractor from "@/components/StepContractor";
 import StepPermits from "@/components/StepPermits";
 import StepFinancing from "@/components/StepFinancing";
 import BudgetResult from "@/components/BudgetResult";
+import PhotoAnalysisResult from "@/components/PhotoAnalysisResult";
 import SuccessPage from "@/components/SuccessPage";
-import { generateBudget, BudgetBreakdown } from "@/lib/budgetEngine";
+import { generateBudget, generateEnhancedBudget, BudgetBreakdown, EnhancedBudgetResult } from "@/lib/budgetEngine";
 import { generatePDF } from "@/lib/pdfGenerator";
 import { createPermitEntry } from "@/lib/permitIntegration";
+import type { VisionAnalysis } from "@/lib/visionAnalysis";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -85,23 +88,35 @@ export type FormData = z.infer<typeof formSchema>;
 const STEPS = [
   { id: 1, title: "Client Info", description: "Your details" },
   { id: 2, title: "Project", description: "Property details" },
-  { id: 3, title: "Scope & Budget", description: "Work scope" },
-  { id: 4, title: "Contractor", description: "Contractor info" },
-  { id: 5, title: "Permits", description: "Required permits" },
-  { id: 6, title: "Financing", description: "Payment details" },
+  { id: 3, title: "Photos", description: "Property photos" },
+  { id: 4, title: "Scope & Budget", description: "Work scope" },
+  { id: 5, title: "Contractor", description: "Contractor info" },
+  { id: 6, title: "Permits", description: "Required permits" },
+  { id: 7, title: "Financing", description: "Payment details" },
 ];
 
 export default function Home() {
   const [currentStep, setCurrentStep] = useState(1);
   const [budget, setBudget] = useState<BudgetBreakdown | null>(null);
+  const [enhancedResult, setEnhancedResult] = useState<EnhancedBudgetResult | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [submitted, setSubmitted] = useState(false);
-  const [referenceId, setReferenceId] = useState<string>("");
   const [emailSent, setEmailSent] = useState(false);
   const [emailError, setEmailError] = useState(false);
   const [fileBase64, setFileBase64] = useState<string>("");
   const [fileName, setFileName] = useState<string>("");
   const [permitReferenceId, setPermitReferenceId] = useState<string>("");
+
+  // Photo state
+  const [photos, setPhotos] = useState<PhotoFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [photoAnalysis, setPhotoAnalysis] = useState<VisionAnalysis | null>(null);
+  const [driveFolderId, setDriveFolderId] = useState<string>("");
+  const [driveFolderLink, setDriveFolderLink] = useState<string>("");
+  const [uploadedPhotos, setUploadedPhotos] = useState<Array<{ fileName: string; category: string; webViewLink: string }>>([]);
+  const [recommendationsAccepted, setRecommendationsAccepted] = useState<boolean | null>(null);
+  const [photoError, setPhotoError] = useState<string>("");
 
   const {
     register,
@@ -126,20 +141,96 @@ export default function Home() {
   const stepFields: Record<number, (keyof FormData)[]> = {
     1: ["firstName", "lastName", "email", "phone", "tinEin", "articlesOfOrg"],
     2: ["propertyAddress", "city", "state", "zipCode", "squareFootage", "projectType", "occupancyType", "numberOfUnits"],
-    3: ["scopeOfWork", "estimatedCost", "startDate", "completionDate"],
-    4: ["usingOwnContractor", "contractorName"],
-    5: ["permitElectrical", "permitMechanical", "permitHVAC"],
-    6: ["financingType", "lenderName"],
+    3: [], // Photos - no form validation needed
+    4: ["scopeOfWork", "estimatedCost", "startDate", "completionDate"],
+    5: ["usingOwnContractor", "contractorName"],
+    6: ["permitElectrical", "permitMechanical", "permitHVAC"],
+    7: ["financingType", "lenderName"],
+  };
+
+  const handleUploadAndAnalyze = async () => {
+    if (photos.length === 0) return;
+
+    const values = getValues();
+    const projectName = `${values.firstName || "Client"} ${values.lastName || ""} - ${values.propertyAddress || "Property"} - ${new Date().toISOString().split("T")[0]}`;
+
+    setPhotoError("");
+    setIsUploading(true);
+
+    try {
+      // Upload to Google Drive
+      const uploadRes = await fetch("/api/upload-photos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectName,
+          photos: photos.map((p) => ({
+            base64: p.base64,
+            mimeType: p.mimeType,
+            category: p.category,
+            fileName: p.fileName,
+          })),
+        }),
+      });
+
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json();
+        throw new Error(err.error || "Upload failed");
+      }
+
+      const uploadData = await uploadRes.json();
+      setDriveFolderId(uploadData.folderId);
+      setDriveFolderLink(uploadData.folderLink);
+      setUploadedPhotos(uploadData.uploaded);
+
+      setIsUploading(false);
+      setIsAnalyzing(true);
+
+      // Analyze photos with Claude Vision
+      const analyzeRes = await fetch("/api/analyze-photos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          photos: photos.map((p) => ({
+            base64: p.base64,
+            mimeType: p.mimeType,
+            category: p.category,
+            fileName: p.fileName,
+          })),
+        }),
+      });
+
+      if (!analyzeRes.ok) {
+        const err = await analyzeRes.json();
+        throw new Error(err.error || "Analysis failed");
+      }
+
+      const analyzeData = await analyzeRes.json();
+      setPhotoAnalysis(analyzeData.analysis);
+    } catch (err: any) {
+      console.error("Photo processing error:", err);
+      setPhotoError(err.message || "Failed to process photos. You can still continue without photo analysis.");
+    } finally {
+      setIsUploading(false);
+      setIsAnalyzing(false);
+    }
   };
 
   const handleNext = async () => {
     const fields = stepFields[currentStep];
-    const valid = await trigger(fields as any);
-    if (valid) {
-      if (currentStep < 6) {
-        setCurrentStep((s) => s + 1);
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }
+    if (fields.length > 0) {
+      const valid = await trigger(fields as any);
+      if (!valid) return;
+    }
+
+    // When leaving photo step, upload & analyze
+    if (currentStep === 3 && photos.length > 0 && !photoAnalysis && !driveFolderId) {
+      await handleUploadAndAnalyze();
+    }
+
+    if (currentStep < 7) {
+      setCurrentStep((s) => s + 1);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
@@ -176,7 +267,7 @@ export default function Home() {
     const values = getValues();
     setIsGenerating(true);
     try {
-      const result = generateBudget({
+      const input = {
         scopeOfWork: values.scopeOfWork,
         squareFootage: parseInt(values.squareFootage) || 0,
         projectType: values.projectType,
@@ -187,41 +278,65 @@ export default function Home() {
           hvac: values.permitHVAC,
         },
         estimatedCost: values.estimatedCost ? parseFloat(values.estimatedCost.replace(/[^0-9.]/g, "")) : undefined,
-      });
-      setBudget(result);
+        photoAnalysis: photoAnalysis || undefined,
+      };
+
+      if (photoAnalysis) {
+        const enhanced = generateEnhancedBudget(input);
+        setEnhancedResult(enhanced);
+        // Default to recommended if accepted, standard otherwise
+        setBudget(recommendationsAccepted ? enhanced.recommendedBudget || enhanced.standardBudget : enhanced.standardBudget);
+      } else {
+        const result = generateBudget(input);
+        setBudget(result);
+      }
     } catch {
       alert("Error generating budget. Please try again.");
     }
     setIsGenerating(false);
   };
 
+  const handleAcceptRecommendations = () => {
+    setRecommendationsAccepted(true);
+    if (enhancedResult?.recommendedBudget) {
+      setBudget(enhancedResult.recommendedBudget);
+    }
+  };
+
+  const handleRejectRecommendations = () => {
+    setRecommendationsAccepted(false);
+    if (enhancedResult?.standardBudget) {
+      setBudget(enhancedResult.standardBudget);
+    }
+  };
+
   const onSubmit = async (data: FormData) => {
-    // Store in localStorage
     const submission = {
       id: Date.now().toString(),
       timestamp: new Date().toISOString(),
       data: { ...data, articlesOfOrg: fileName },
       fileBase64,
       budget,
+      photoAnalysis,
+      driveFolderId,
+      driveFolderLink,
+      recommendationsAccepted,
     };
 
     const existing = JSON.parse(localStorage.getItem("permit-submissions") || "[]");
     existing.push(submission);
     localStorage.setItem("permit-submissions", JSON.stringify(existing));
 
-    // Generate PDF
     try {
       generatePDF(data, budget, fileName);
     } catch (e) {
       console.error("PDF generation failed:", e);
     }
 
-    // Create permit entry in permit-manager's localStorage
     try {
       const refId = createPermitEntry(data, budget);
       setPermitReferenceId(refId);
 
-      // Send confirmation email
       try {
         const emailPayload = {
           data: {
@@ -247,6 +362,13 @@ export default function Home() {
           },
           budget,
           referenceId: refId,
+          driveFolderId,
+          driveFolderLink,
+          photoAnalysis: photoAnalysis ? {
+            overallCondition: photoAnalysis.overallCondition,
+            summary: photoAnalysis.summary,
+            recommendationsAccepted,
+          } : null,
         };
 
         const res = await fetch("/api/send-confirmation", {
@@ -258,11 +380,9 @@ export default function Home() {
         if (res.ok) {
           setEmailSent(true);
         } else {
-          console.error("Email API error:", await res.text());
           setEmailError(true);
         }
-      } catch (emailErr) {
-        console.error("Email send failed:", emailErr);
+      } catch {
         setEmailError(true);
       }
     } catch (e) {
@@ -273,7 +393,19 @@ export default function Home() {
   };
 
   if (submitted) {
-    return <SuccessPage data={getValues()} budget={budget} referenceId={permitReferenceId} emailSent={emailSent} emailError={emailError} />;
+    return (
+      <SuccessPage
+        data={getValues()}
+        budget={budget}
+        referenceId={permitReferenceId}
+        emailSent={emailSent}
+        emailError={emailError}
+        photoAnalysis={photoAnalysis}
+        driveFolderLink={driveFolderLink}
+        uploadedPhotos={uploadedPhotos}
+        recommendationsAccepted={recommendationsAccepted}
+      />
+    );
   }
 
   return (
@@ -311,13 +443,79 @@ export default function Home() {
               <StepClient register={register} errors={errors} onFileChange={handleFileChange} fileName={fileName} />
             )}
             {currentStep === 2 && <StepProject register={register} errors={errors} control={control} setValue={setValue} watch={watch} />}
-            {currentStep === 3 && <StepScope register={register} errors={errors} />}
-            {currentStep === 4 && <StepContractor register={register} errors={errors} watch={watch} />}
-            {currentStep === 5 && <StepPermits register={register} />}
-            {currentStep === 6 && <StepFinancing register={register} errors={errors} control={control} />}
+            {currentStep === 3 && (
+              <div className="space-y-6">
+                <StepPhotos photos={photos} onPhotosChange={setPhotos} />
 
-            {/* Budget Generation (show on step 6) */}
-            {currentStep === 6 && (
+                {/* Upload/Analysis Status */}
+                {(isUploading || isAnalyzing) && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div className="flex items-center gap-3">
+                      <svg className="animate-spin h-5 w-5 text-blue-600" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <div>
+                        <p className="font-semibold text-blue-800 text-sm">
+                          {isUploading ? "Uploading photos to Google Drive..." : "Analyzing photos with AI..."}
+                        </p>
+                        <p className="text-xs text-blue-600">
+                          {isUploading ? "Creating project folder and uploading files" : "Claude Vision is analyzing property condition"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {photoError && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <p className="text-sm text-yellow-700">⚠️ {photoError}</p>
+                  </div>
+                )}
+
+                {driveFolderLink && !isUploading && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-600">✅</span>
+                      <span className="text-sm text-green-700 font-medium">
+                        {uploadedPhotos.length} photos uploaded to Google Drive
+                      </span>
+                      <a
+                        href={driveFolderLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-auto text-xs text-green-600 underline hover:text-green-700"
+                      >
+                        View Folder →
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                {photoAnalysis && !isAnalyzing && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-600">🔍</span>
+                      <span className="text-sm text-green-700 font-medium">
+                        AI analysis complete — condition: {photoAnalysis.overallCondition} ({photoAnalysis.conditionScore}/10)
+                      </span>
+                    </div>
+                    <p className="text-xs text-green-600 mt-1 ml-7">{photoAnalysis.summary}</p>
+                  </div>
+                )}
+
+                <p className="text-xs text-gray-400 text-center">
+                  Photos are optional. You can skip this step and continue without photo analysis.
+                </p>
+              </div>
+            )}
+            {currentStep === 4 && <StepScope register={register} errors={errors} />}
+            {currentStep === 5 && <StepContractor register={register} errors={errors} watch={watch} />}
+            {currentStep === 6 && <StepPermits register={register} />}
+            {currentStep === 7 && <StepFinancing register={register} errors={errors} control={control} />}
+
+            {/* Budget Generation (show on step 7) */}
+            {currentStep === 7 && (
               <div className="mt-6 pt-6 border-t border-gray-100">
                 <button
                   type="button"
@@ -338,11 +536,25 @@ export default function Home() {
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                       </svg>
-                      Generate AI Budget Estimate
+                      {photoAnalysis ? "Generate AI Budget Estimate (with Photo Analysis)" : "Generate AI Budget Estimate"}
                     </>
                   )}
                 </button>
-                {budget && <BudgetResult budget={budget} clientEstimate={getValues().estimatedCost} />}
+
+                {/* Show enhanced result if photo analysis exists */}
+                {enhancedResult && photoAnalysis && (
+                  <div className="mt-6">
+                    <PhotoAnalysisResult
+                      result={enhancedResult}
+                      onAcceptRecommendations={handleAcceptRecommendations}
+                      onRejectRecommendations={handleRejectRecommendations}
+                      accepted={recommendationsAccepted}
+                    />
+                  </div>
+                )}
+
+                {/* Show standard budget if no photo analysis */}
+                {budget && !enhancedResult && <BudgetResult budget={budget} clientEstimate={getValues().estimatedCost} />}
               </div>
             )}
 
@@ -355,9 +567,14 @@ export default function Home() {
               ) : (
                 <div />
               )}
-              {currentStep < 6 ? (
-                <button type="button" onClick={handleNext} className="step-btn-primary">
-                  Next →
+              {currentStep < 7 ? (
+                <button
+                  type="button"
+                  onClick={handleNext}
+                  disabled={isUploading || isAnalyzing}
+                  className="step-btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {(isUploading || isAnalyzing) ? "Processing..." : "Next →"}
                 </button>
               ) : (
                 <button type="submit" className="step-btn bg-green-600 text-white hover:bg-green-700 shadow-md hover:shadow-lg">

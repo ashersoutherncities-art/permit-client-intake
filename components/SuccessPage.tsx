@@ -2,6 +2,7 @@
 
 import { FormData } from "@/app/page";
 import { BudgetBreakdown } from "@/lib/budgetEngine";
+import type { VisionAnalysis } from "@/lib/visionAnalysis";
 
 interface Props {
   data: FormData;
@@ -9,9 +10,23 @@ interface Props {
   referenceId?: string;
   emailSent?: boolean;
   emailError?: boolean | string;
+  photoAnalysis?: VisionAnalysis | null;
+  driveFolderLink?: string;
+  uploadedPhotos?: Array<{ fileName: string; category: string; webViewLink: string }>;
+  recommendationsAccepted?: boolean | null;
 }
 
-export default function SuccessPage({ data, budget, referenceId, emailSent, emailError }: Props) {
+const CONDITION_LABELS: Record<string, string> = {
+  good: "Good",
+  fair: "Fair",
+  poor: "Poor",
+  major_work_needed: "Major Work Needed",
+};
+
+export default function SuccessPage({
+  data, budget, referenceId, emailSent, emailError,
+  photoAnalysis, driveFolderLink, uploadedPhotos, recommendationsAccepted,
+}: Props) {
   return (
     <main className="min-h-screen flex items-center justify-center py-8 px-4">
       <div className="max-w-lg w-full text-center">
@@ -58,6 +73,74 @@ export default function SuccessPage({ data, budget, referenceId, emailSent, emai
               )}
             </div>
           </div>
+
+          {/* Photo Analysis Results */}
+          {photoAnalysis && (
+            <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 mb-6 text-left">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">🔍</span>
+                <h4 className="font-semibold text-purple-800">AI Photo Analysis</h4>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-purple-600">Property Condition</span>
+                  <span className="font-semibold text-purple-800">
+                    {CONDITION_LABELS[photoAnalysis.overallCondition] || photoAnalysis.overallCondition} ({photoAnalysis.conditionScore}/10)
+                  </span>
+                </div>
+                <p className="text-purple-700 text-xs">{photoAnalysis.summary}</p>
+                {photoAnalysis.identifiedIssues.length > 0 && (
+                  <div className="pt-2 border-t border-purple-200">
+                    <span className="text-xs font-semibold text-purple-700">Issues Found:</span>
+                    <ul className="text-xs text-purple-600 mt-1 space-y-0.5">
+                      {photoAnalysis.identifiedIssues.slice(0, 5).map((issue, i) => (
+                        <li key={i}>• [{issue.severity}] {issue.category}: {issue.description}</li>
+                      ))}
+                      {photoAnalysis.identifiedIssues.length > 5 && (
+                        <li className="text-purple-400">...and {photoAnalysis.identifiedIssues.length - 5} more</li>
+                      )}
+                    </ul>
+                  </div>
+                )}
+                {recommendationsAccepted !== null && (
+                  <div className="pt-2 border-t border-purple-200">
+                    <span className="text-xs text-purple-600">
+                      Recommendations: <strong>{recommendationsAccepted ? "✅ Accepted" : "❌ Declined (using standard budget)"}</strong>
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Photo Upload Confirmation */}
+          {uploadedPhotos && uploadedPhotos.length > 0 && (
+            <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 mb-6 text-left">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">📸</span>
+                <h4 className="font-semibold text-indigo-800">Photos Uploaded</h4>
+              </div>
+              <div className="space-y-1 text-xs text-indigo-700">
+                {uploadedPhotos.map((p, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <span className="text-indigo-400">•</span>
+                    <span>{p.fileName}</span>
+                    <span className="text-indigo-400">({p.category})</span>
+                  </div>
+                ))}
+              </div>
+              {driveFolderLink && (
+                <a
+                  href={driveFolderLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block mt-2 text-xs text-indigo-600 underline hover:text-indigo-800"
+                >
+                  📂 View in Google Drive →
+                </a>
+              )}
+            </div>
+          )}
 
           {/* Permit Queue Confirmation */}
           {referenceId && (
@@ -117,6 +200,7 @@ export default function SuccessPage({ data, budget, referenceId, emailSent, emai
             <h4 className="font-semibold text-gray-800 text-sm mb-2">📋 Next Steps</h4>
             <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
               <li>Our team reviews your intake form and budget estimate</li>
+              {photoAnalysis && <li>AI photo analysis findings are reviewed by our estimator</li>}
               <li>We verify property details and permit requirements</li>
               <li>You&apos;ll receive a call/email to discuss project scope</li>
               <li>Permit applications are prepared and submitted on your behalf</li>

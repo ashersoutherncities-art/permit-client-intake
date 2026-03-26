@@ -9,8 +9,10 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.80.0",
     "@hookform/resolvers": "^5.2.2",
     "@sendgrid/mail": "^8.1.6",
+    "googleapis": "^171.4.0",
     "jspdf": "^4.2.1",
     "next": "14.2.35",
     "react": "^18",
