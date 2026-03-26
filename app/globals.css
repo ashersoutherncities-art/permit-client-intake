@@ -2,26 +2,43 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@layer base {
+  :root {
+    --sc-gold: #C8A951;
+    --sc-navy: #1B2A4A;
+    --sc-dark: #0F1724;
+    --sc-light: #F8F9FA;
+  }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer components {
+  .input-field {
+    @apply w-full px-4 py-3 bg-white border border-gray-300 rounded-lg text-gray-900
+           focus:ring-2 focus:ring-[#C8A951] focus:border-transparent outline-none
+           transition-all duration-200 placeholder:text-gray-400;
   }
+  .input-field.error {
+    @apply border-red-500 focus:ring-red-500;
+  }
+  .label-text {
+    @apply block text-sm font-semibold text-gray-700 mb-1.5;
+  }
+  .step-btn {
+    @apply px-8 py-3 rounded-lg font-semibold text-base transition-all duration-200;
+  }
+  .step-btn-primary {
+    @apply step-btn bg-[#C8A951] text-white hover:bg-[#b8993f] shadow-md hover:shadow-lg;
+  }
+  .step-btn-secondary {
+    @apply step-btn bg-gray-200 text-gray-700 hover:bg-gray-300;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+  min-height: 100vh;
 }
