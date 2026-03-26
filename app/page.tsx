@@ -15,6 +15,7 @@ import BudgetResult from "@/components/BudgetResult";
 import SuccessPage from "@/components/SuccessPage";
 import { generateBudget, BudgetBreakdown } from "@/lib/budgetEngine";
 import { generatePDF } from "@/lib/pdfGenerator";
+import { createPermitEntry } from "@/lib/permitIntegration";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -29,6 +30,9 @@ const formSchema = z.object({
 
   // Project
   propertyAddress: z.string().min(5, "Property address is required"),
+  city: z.string().min(1, "City is required"),
+  state: z.string().min(1, "State is required"),
+  zipCode: z.string().min(5, "ZIP code is required"),
   squareFootage: z.string().min(1, "Square footage is required"),
   projectType: z.enum(["New Build", "Renovation", "Site Improvements"], {
     message: "Project type is required",
@@ -92,8 +96,12 @@ export default function Home() {
   const [budget, setBudget] = useState<BudgetBreakdown | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [referenceId, setReferenceId] = useState<string>("");
+  const [emailSent, setEmailSent] = useState(false);
+  const [emailError, setEmailError] = useState(false);
   const [fileBase64, setFileBase64] = useState<string>("");
   const [fileName, setFileName] = useState<string>("");
+  const [permitReferenceId, setPermitReferenceId] = useState<string>("");
 
   const {
     register,
@@ -101,6 +109,7 @@ export default function Home() {
     control,
     watch,
     trigger,
+    setValue,
     formState: { errors },
     getValues,
   } = useForm<FormData>({
@@ -116,7 +125,7 @@ export default function Home() {
 
   const stepFields: Record<number, (keyof FormData)[]> = {
     1: ["firstName", "lastName", "email", "phone", "tinEin", "articlesOfOrg"],
-    2: ["propertyAddress", "squareFootage", "projectType", "occupancyType", "numberOfUnits"],
+    2: ["propertyAddress", "city", "state", "zipCode", "squareFootage", "projectType", "occupancyType", "numberOfUnits"],
     3: ["scopeOfWork", "estimatedCost", "startDate", "completionDate"],
     4: ["usingOwnContractor", "contractorName"],
     5: ["permitElectrical", "permitMechanical", "permitHVAC"],
@@ -207,11 +216,64 @@ export default function Home() {
       console.error("PDF generation failed:", e);
     }
 
+    // Create permit entry in permit-manager's localStorage
+    try {
+      const refId = createPermitEntry(data, budget);
+      setPermitReferenceId(refId);
+
+      // Send confirmation email
+      try {
+        const emailPayload = {
+          data: {
+            firstName: data.firstName,
+            lastName: data.lastName,
+            email: data.email,
+            phone: data.phone,
+            propertyAddress: data.propertyAddress,
+            squareFootage: data.squareFootage,
+            projectType: data.projectType,
+            occupancyType: data.occupancyType,
+            scopeOfWork: data.scopeOfWork,
+            estimatedCost: data.estimatedCost,
+            startDate: data.startDate,
+            completionDate: data.completionDate,
+            usingOwnContractor: data.usingOwnContractor,
+            contractorName: data.contractorName,
+            permitElectrical: data.permitElectrical,
+            permitMechanical: data.permitMechanical,
+            permitHVAC: data.permitHVAC,
+            financingType: data.financingType,
+            lenderName: data.lenderName,
+          },
+          budget,
+          referenceId: refId,
+        };
+
+        const res = await fetch("/api/send-confirmation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(emailPayload),
+        });
+
+        if (res.ok) {
+          setEmailSent(true);
+        } else {
+          console.error("Email API error:", await res.text());
+          setEmailError(true);
+        }
+      } catch (emailErr) {
+        console.error("Email send failed:", emailErr);
+        setEmailError(true);
+      }
+    } catch (e) {
+      console.error("Permit integration failed:", e);
+    }
+
     setSubmitted(true);
   };
 
   if (submitted) {
-    return <SuccessPage data={getValues()} budget={budget} />;
+    return <SuccessPage data={getValues()} budget={budget} referenceId={permitReferenceId} emailSent={emailSent} emailError={emailError} />;
   }
 
   return (
@@ -248,7 +310,7 @@ export default function Home() {
             {currentStep === 1 && (
               <StepClient register={register} errors={errors} onFileChange={handleFileChange} fileName={fileName} />
             )}
-            {currentStep === 2 && <StepProject register={register} errors={errors} control={control} />}
+            {currentStep === 2 && <StepProject register={register} errors={errors} control={control} setValue={setValue} watch={watch} />}
             {currentStep === 3 && <StepScope register={register} errors={errors} />}
             {currentStep === 4 && <StepContractor register={register} errors={errors} watch={watch} />}
             {currentStep === 5 && <StepPermits register={register} />}

@@ -64,6 +64,8 @@ export function generatePDF(data: any, budget: BudgetBreakdown | null, fileName:
   // Project Info
   section("Project Details");
   row("Address:", data.propertyAddress);
+  row("City/State/ZIP:", `${data.city || ""}, ${data.state || ""} ${data.zipCode || ""}`);
+
   row("Square Footage:", `${parseInt(data.squareFootage).toLocaleString()} SF`);
   row("Project Type:", data.projectType);
   row("Occupancy:", data.occupancyType);

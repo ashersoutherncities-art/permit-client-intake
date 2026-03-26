@@ -1,22 +1,69 @@
 "use client";
 
-import { UseFormRegister, FieldErrors, Control, Controller } from "react-hook-form";
+import { useCallback } from "react";
+import { UseFormRegister, FieldErrors, Control, Controller, UseFormSetValue, UseFormWatch } from "react-hook-form";
 import { FormData } from "@/app/page";
 import FieldError from "./FieldError";
+import AddressAutocomplete from "./AddressAutocomplete";
 
 interface Props {
   register: UseFormRegister<FormData>;
   errors: FieldErrors<FormData>;
   control: Control<FormData>;
+  setValue: UseFormSetValue<FormData>;
+  watch: UseFormWatch<FormData>;
 }
 
-export default function StepProject({ register, errors, control }: Props) {
+export default function StepProject({ register, errors, control, setValue, watch }: Props) {
+  const propertyAddress = watch("propertyAddress") || "";
+
+  const handleAddressChange = useCallback(
+    (value: string) => {
+      setValue("propertyAddress", value, { shouldValidate: true });
+    },
+    [setValue]
+  );
+
+  const handleAddressSelect = useCallback(
+    (components: { streetAddress: string; city: string; state: string; zipCode: string }) => {
+      setValue("propertyAddress", components.streetAddress, { shouldValidate: true });
+      setValue("city", components.city, { shouldValidate: true });
+      setValue("state", components.state, { shouldValidate: true });
+      setValue("zipCode", components.zipCode, { shouldValidate: true });
+    },
+    [setValue]
+  );
+
   return (
     <div className="space-y-5">
       <div>
         <label className="label-text">Property Address <span className="text-red-500">*</span></label>
-        <input {...register("propertyAddress")} className={`input-field ${errors.propertyAddress ? "error" : ""}`} placeholder="123 Main St, Charlotte, NC 28202" />
+        <AddressAutocomplete
+          value={propertyAddress}
+          onChange={handleAddressChange}
+          onAddressSelect={handleAddressSelect}
+          hasError={!!errors.propertyAddress}
+          placeholder="Start typing an address..."
+        />
         <FieldError error={errors.propertyAddress} />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+        <div>
+          <label className="label-text">City <span className="text-red-500">*</span></label>
+          <input {...register("city")} className={`input-field ${errors.city ? "error" : ""}`} placeholder="Charlotte" />
+          <FieldError error={errors.city} />
+        </div>
+        <div>
+          <label className="label-text">State <span className="text-red-500">*</span></label>
+          <input {...register("state")} className={`input-field ${errors.state ? "error" : ""}`} placeholder="NC" />
+          <FieldError error={errors.state} />
+        </div>
+        <div>
+          <label className="label-text">ZIP Code <span className="text-red-500">*</span></label>
+          <input {...register("zipCode")} className={`input-field ${errors.zipCode ? "error" : ""}`} placeholder="28202" />
+          <FieldError error={errors.zipCode} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
