@@ -3,9 +3,9 @@
 
 import { google } from 'googleapis';
 
-const SCOPES = ['https://www.googleapis.com/auth/drive.file'];
+const SCOPES = ['https://www.googleapis.com/auth/drive'];
 
-// Parent folder for all permit intake projects
+// Parent folder for all permit intake projects (optional)
 const PARENT_FOLDER_ID = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || '';
 
 function getAuth() {
