@@ -44,6 +44,9 @@ interface IntakeFormData {
   email: string;
   phone: string;
   propertyAddress: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
   squareFootage: string;
   projectType: string;
   scopeOfWork: string;
@@ -129,7 +132,7 @@ export function createPermitEntry(formData: IntakeFormData, budget: BudgetBreakd
   const project = {
     id: generateId(),
     name: `${formData.firstName} ${formData.lastName} - ${formData.propertyAddress.split(',')[0]}`,
-    address: formData.propertyAddress,
+    address: [formData.propertyAddress, formData.city, formData.state, formData.zipCode].filter(Boolean).join(', '),
     type: mappedType,
     value: budget ? budget.total : 0,
     createdAt: now,
