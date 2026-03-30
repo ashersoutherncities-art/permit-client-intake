@@ -337,6 +337,40 @@ export default function Home() {
       const refId = createPermitEntry(data, budget);
       setPermitReferenceId(refId);
 
+      // Send permit entry to Permit Manager (Vercel)
+      try {
+        const permitManagerPayload = {
+          _intakeRef: refId,
+          name: `${data.firstName} ${data.lastName} - ${data.propertyAddress}`,
+          address: data.propertyAddress,
+          city: data.city || "",
+          state: data.state || "",
+          zip: data.zip || "",
+          type: data.projectType === "New Build" ? "New Construction" : data.projectType === "Renovation" ? "Renovation" : "Commercial Buildout",
+          value: budget.total || 0,
+          status: "Potential",
+          permits: [
+            data.permitElectrical && "Electrical",
+            data.permitMechanical && "Mechanical",
+            data.permitHVAC && "HVAC"
+          ].filter(Boolean),
+          _clientEmail: data.email,
+          _clientPhone: data.phone,
+          _scopeOfWork: data.scopeOfWork,
+          _submissionDate: new Date().toISOString(),
+          _driveFolderId: driveFolderId,
+          _driveFolderLink: driveFolderLink,
+        };
+
+        await fetch("https://permit-manager.vercel.app/api/permits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(permitManagerPayload),
+        }).catch(err => console.warn("Permit Manager API not available yet, data stored locally", err));
+      } catch (err) {
+        console.error("Error sending to Permit Manager:", err);
+      }
+
       try {
         const emailPayload = {
           data: {
